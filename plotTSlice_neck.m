@@ -1,13 +1,28 @@
-function [figHandle] = plotTSlice(modelSlice, TSlice, myTitle, displayLimits, targetXY)
+function [figHandle] = plotTSlice_neck(modelSlice, TSlice, myTitle, displayLimits, targetXY, otherXY, figHandle)
     % This function plots a slice of a temperatures volume, overlaid on a grayscale slice of model
     
-    figHandle = figure; 
+     % Create figure at 80% of screen size
+        % Get screen size in normalized units
+    screenSize = get(0, 'ScreenSize');  % [left bottom width height] in pixels
+    
+    % Define desired figure size as a percentage of screen size
+    widthPercent = 0.6;
+    heightPercent = 0.6;
+    
+    % Calculate figure position
+    figWidth = screenSize(3) * widthPercent;
+    figHeight = screenSize(4) * heightPercent;
+    figLeft = (screenSize(3) - figWidth) / 2;
+    figBottom = (screenSize(4) - figHeight) / 2;
+    figHandle = figure('Units', 'pixels', ...
+                       'Position', [figLeft, figBottom, figWidth, figHeight]);
+    figHandle.Units = 'normalized';
 
     % pick colormap based on which .m file exists:
-    if exist('magmaColorMap.m','file')
-        myColorMap = magmaColorMap();
-    elseif exist('fireColorMap.m','file')
-        myColorMap = fireColorMap();
+    if exist('colorMap_magma.m','file')
+        myColorMap = colorMap_magma();
+    elseif exist('colorMap_fire.m','file')
+        myColorMap = colorMap_fire();
     else
         % fallback if neither exists
         myColorMap = hot(256);
@@ -17,9 +32,7 @@ function [figHandle] = plotTSlice(modelSlice, TSlice, myTitle, displayLimits, ta
     baseAxes = axes(figHandle);
     imagesc(baseAxes, modelSlice);
     colormap(baseAxes,'gray');
-    axis image;
-    axis xy;
-
+    
     % plot a legend with media descriptions
     legends = {'Water', 'Bone/Spine', 'Skin', 'Spinal Cord', 'Blood Vessels', 'Fat', 'Muscle', 'CSF'};
     hold on;
@@ -27,18 +40,15 @@ function [figHandle] = plotTSlice(modelSlice, TSlice, myTitle, displayLimits, ta
         hidden_h(K) = surf(uint8([K K;K K]), 'edgecolor','none'); %#ok<AGROW>
     end
     uistack(hidden_h,'bottom');
-    legend(hidden_h, legends(1:8), 'Location', 'northwestoutside');
+    legend(hidden_h, legends(1:8), 'Location', 'northwest');
     tt = title(myTitle);
     tt.FontSize = 8;
     
     ylabel('Row');
     xlabel('Page');
 
-    % the target voxel
-    scatter(targetXY(1), targetXY(2), 'gs', 'linewidth', 2, 'MarkerEdgeAlpha', 0.5);
-
     % plot temperature slice
-    overlayAxes = axes(figHandle);
+    overlayAxes = axes('Position', baseAxes.Position);
     overlayPlot = imagesc(TSlice);
     colormap(overlayAxes, myColorMap);
 
@@ -56,7 +66,6 @@ function [figHandle] = plotTSlice(modelSlice, TSlice, myTitle, displayLimits, ta
         mask(ind1, ind2) = 0.9; %1; % target volume
     end
     overlayPlot.AlphaData = squeeze(mask);
-    overlayAxes.Position = baseAxes.Position;
 
     cb = colorbar(overlayAxes);
     cb.Label.String = 'Temperature (°C)';
@@ -64,7 +73,16 @@ function [figHandle] = plotTSlice(modelSlice, TSlice, myTitle, displayLimits, ta
 
     baseAxes.Position = overlayAxes.Position;
     set(overlayAxes, 'Visible', 'off');
-    axis image;
-    axis xy;
+
+    % plot target voxel point
+    hold on;
+    plot(targetXY(1, 1), targetXY(1, 2), 'r', 'Marker', '*'); 
+    % plot other points of interest
+    scatter(otherXY(:, 1), otherXY(:, 2), 25, 'k');
+
+    axis(baseAxes, 'image');
+    axis(baseAxes, 'xy');
+    axis(overlayAxes, 'image');
+    axis(overlayAxes, 'xy');
    
 end

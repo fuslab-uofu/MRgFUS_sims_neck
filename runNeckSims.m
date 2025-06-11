@@ -43,6 +43,7 @@
 % Requirements: MATLAB R2020a or later (toolboxes?)  
 %
 % Dependencies: 1. runAcousticSim_neck.m 
+%               2. plotPQSlice_neck.m
 %               2. runThermalSim_neck.m  
 %
 % =============================================================================
@@ -55,33 +56,17 @@ studyDir = 'D:\HUMAN\IRB137036_Rieke_Shah\neck_system_paper';
 % segmented neck model
 % NOTE: HAS expects the model to be a 3D matrix of integers specifically named 'Modl' (not a type-o)
 % Each integer corresponds to one medium, values must be contiguous and range from 1 to number of media.
-modelDir = fullfile(studyDir, 'Model_384957\MichelleCodeTests');
+modelDir = fullfile(studyDir, '384957\MichelleCodeTests');
 modelID = 'Model_384957'; 
 load(fullfile(modelDir, modelID), 'Modl');
 modelResolution_rcp = [0.5 0.5 0.5]; % row, col, page
 
-% create targets
-% row, col, page indices in segmented model
-targets(1).id = 'left_1';
-targets(1).coords_RCP = [294   212   216];
-targets(2).id = 'left_2';
-targets(2).coords_RCP = [304   176   217];
-targets(3).id = 'left_3';
-targets(3).coords_RCP = [304   146   221];
-targets(4).id = 'left_4';
-targets(4).coords_RCP = [195   114   228];
-targets(5).id = 'left_5';
-targets(5).coords_RCP = [303    87   224];
-targets(6).id = 'right_1';
-targets(6).coords_RCP = [222   219   203];
-targets(7).id = 'right_2';
-targets(7).coords_RCP = [357   176   215];
-targets(8).id = 'right_3';
-targets(8).coords_RCP = [198   146   217];
-targets(9).id = 'right_4';
-targets(9).coords_RCP = [303   114   217];
-targets(10).id = 'right_5';
-targets(10).coords_RCP = [192    87   221];
+% coordinates of points of interest (target and offtarget locations) for
+% all five levels (row, col, page indices in segmented model)
+load(fullfile(modelDir, 'trgt_offtrgt_coords.mat'), 'levelPOI');
+target_ids = {'target_left', 'target_right'};
+otherPOI_ids = {'csf', 'nerve_left', 'nerve_right', 'artery_left', 'artery_right', 'sc'};
+
 
 % electronic steering, xyz (mm)
 steering = [0 0 0]; 
@@ -89,15 +74,7 @@ steering = [0 0 0];
 % this is transducer rotation (psi, degrees)
 % in this case, negative for left-side targets
 % eight sets of three angles (one set for each target) 
-angles = [...
-    0   -15   -30
-    0   -15   -30
-    0   -15   -30
-    0   -15   -30
-    0    15    30
-    0    15    30
-    0    15    30
-    0    15    30];
+angles = [0 15 30];
 
 % simulated pressure input (ERFA file)
 ERFA_directory = fullfile(studyDir, 'ERFA');
@@ -119,8 +96,8 @@ disp("Running acoustic simulations...");
 fprintf("\n");
 
 % compute total number of simulations to run
-nTargets = numel(targets);
-nAngles  = size(angles,1);
+nTargets = length(levelPOI);
+nAngles  = length(angles);
 nTrans   = 2;  
 nTotal   = nTargets * nAngles * nTrans;
 
@@ -151,126 +128,150 @@ acousticSimResults = repmat(emptySim, nTotal, 1);
 
 % run the simulation at specified targets using specified transducers at specified rotations
 idx = 1;  % index for results output vector
-for targetNum = 1:length(targets)
-    target = targets(targetNum);
-    for angleNum = 1:size(angles, 2)
-        angle = angles(targetNum, angleNum);
-        for transducer = [breast_transducer, bone_transducer]
-            acousticSimResults(idx).modelID = modelID;
-            acousticSimResults(idx).modelFile = fullfile(modelDir, modelID);
-            acousticSimResults(idx).ERFAID = transducer.id;
-            acousticSimResults(idx).targetID = target.id;
-            acousticSimResults(idx).targetRCP = target.coords_RCP;
-            acousticSimResults(idx).angle = angle;
-            % show simulation input info on command line
-            displayString = [
-                "Model:      "   + modelID
-                "Transducer: "   + transducer.id
-                "Rotation:   "   + string(angle) + "°"
-                "Target:     "   + target.id + " " + ...
-                                 strjoin(string(target.coords_RCP)," ")
-            ];
-            for k = 1:numel(displayString)
-                fprintf("%s\n", displayString(k));
+for level = 1:length(levelPOI)
+    for trgt_num = 1:length(target_ids)  % one left and one right at each level
+        target_id = target_ids{trgt_num};
+        target_RCP = levelPOI(level).(target_id);
+        for angleNum = 1:length(angles)
+            angle = angles(angleNum);
+            if strcmp(target_id, 'target_left')
+                angle = -1 * angle;
             end
-
-            [P, Q, resultsStruct] = runAcousticSim_neck( ...
-                transducer.ERFA, ...
-                transducer.ERFA.R*1000, ...  % R is the transducer focal length in meters
-                Modl, ...
-                modelResolution_rcp, ...
-                target, ...
-                angle, ...
-                steering);
-
-            acousticSimResults(idx).maxP = resultsStruct.maxP;
-            acousticSimResults(idx).maxP_RCP = resultsStruct.maxP_RCP;
-            acousticSimResults(idx).targetP = resultsStruct.targetP;
-            acousticSimResults(idx).distP = resultsStruct.distP;
-            acousticSimResults(idx).maxQ = resultsStruct.maxQ;
-            acousticSimResults(idx).maxQ_RCP = resultsStruct.maxQ_RCP;
-            acousticSimResults(idx).targetQ = resultsStruct.targetQ;
-            acousticSimResults(idx).distQ = resultsStruct.distQ;
-            acousticSimResults(idx).metadata = resultsStruct.metadata;
-
-            % save pressure, Q, and metadata
-            disp("Saving pressure and Q...")
-            meta = acousticSimResults(idx).metadata;
-            saveString = [modelID, '_', target.id, '_psi_' num2str(angle), ...
-                '_str_' 'x' num2str(steering(1)) 'y' num2str(steering(2)) 'z' num2str(steering(3)) 'mm' , ...
-                '_', transducer.id];
-            qFileName = ['Q_',saveString,'.mat'];
-            save(fullfile(acousticSaveDir, qFileName), 'Q', 'meta');
-            acousticSimResults(idx).Q_fileName = fullfile(acousticSaveDir, qFileName);
-            pFileName = ['P_', saveString,'.mat'];
-            save(fullfile(acousticSaveDir, pFileName),'P', 'meta');
-            acousticSimResults(idx).P_fileName = fullfile(acousticSaveDir, pFileName);
-
-            % plot pressure and Q slice at target voxel
-            % for better visualization, map images to a clipped colormap range
-            % adjust as necessary
-            lowerDisplayLimit_Q = 1e+06;
-            if acousticSimResults(idx).maxQ <= lowerDisplayLimit_Q
-                lowerDisplayLimit_Q = acousticSimResults(idx).maxQ / 2;
+            for transducer = [breast_transducer, bone_transducer]
+                acousticSimResults(idx).modelID = modelID;
+                acousticSimResults(idx).modelFile = fullfile(modelDir, modelID);
+                acousticSimResults(idx).ERFAID = transducer.id;
+                acousticSimResults(idx).targetID = target_id;
+                acousticSimResults(idx).targetRCP = target_RCP;
+                acousticSimResults(idx).angle = angle;
+                % show simulation input info on command line
+                displayString = [
+                    "Model:      "   + modelID
+                    "Transducer: "   + transducer.id
+                    "Rotation:   "   + string(angle) + "°"
+                    "Target:     "   + target_id + " " + ...
+                                     strjoin(string(target_RCP)," ")
+                ];
+                for k = 1:numel(displayString)
+                    fprintf("%s\n", displayString(k));
+                end
+    
+                [P, Q, resultsStruct] = runAcousticSim_neck( ...
+                    transducer.ERFA, ...
+                    transducer.ERFA.R*1000, ...  % R is the transducer focal length in meters
+                    Modl, ...
+                    modelResolution_rcp, ...
+                    target_RCP, ...
+                    angle, ...
+                    steering);
+    
+                acousticSimResults(idx).maxP = resultsStruct.maxP;
+                acousticSimResults(idx).maxP_RCP = resultsStruct.maxP_RCP;
+                acousticSimResults(idx).targetP = resultsStruct.targetP;
+                acousticSimResults(idx).distP = resultsStruct.distP;
+                acousticSimResults(idx).maxQ = resultsStruct.maxQ;
+                acousticSimResults(idx).maxQ_RCP = resultsStruct.maxQ_RCP;
+                acousticSimResults(idx).targetQ = resultsStruct.targetQ;
+                acousticSimResults(idx).distQ = resultsStruct.distQ;
+                acousticSimResults(idx).metadata = resultsStruct.metadata;
+    
+                % save pressure, Q, and metadata
+                disp("Saving pressure and Q...")
+                meta = acousticSimResults(idx).metadata;
+                saveString = [modelID, '_', target_id, '_psi_' num2str(angle), ...
+                    '_str_' 'x' num2str(steering(1)) 'y' num2str(steering(2)) 'z' num2str(steering(3)) 'mm' , ...
+                    '_', transducer.id];
+                qFileName = ['Q_',saveString,'.mat'];
+                save(fullfile(acousticSaveDir, qFileName), 'Q', 'meta');
+                acousticSimResults(idx).Q_fileName = fullfile(acousticSaveDir, qFileName);
+                pFileName = ['P_', saveString,'.mat'];
+                save(fullfile(acousticSaveDir, pFileName),'P', 'meta');
+                acousticSimResults(idx).P_fileName = fullfile(acousticSaveDir, pFileName);
+    
+                % plot pressure and Q slice at target voxel
+                % for better visualization, map images to a clipped colormap range
+                % adjust as necessary
+                lowerDisplayLimit_Q = 1e+06;
+                if acousticSimResults(idx).maxQ <= lowerDisplayLimit_Q
+                    lowerDisplayLimit_Q = acousticSimResults(idx).maxQ / 2;
+                end
+                lowerDisplayLimit_P = 1e+06;
+                if acousticSimResults(idx).maxP <= lowerDisplayLimit_P
+                    lowerDisplayLimit_P = acousticSimResults(idx).maxP / 2;
+                end
+    
+                % plot Q slice at max and at target ---------- 
+                titleStr_max = sprintf('Q %0.5e W/M^3 at \n Max Voxel (%dr,%dc,%dp) \nPsi %d°', ...
+                    acousticSimResults(idx).maxQ, ...
+                    acousticSimResults(idx).maxQ_RCP(1), ...
+                    acousticSimResults(idx).maxQ_RCP(2), ...
+                    acousticSimResults(idx).maxQ_RCP(3), ...
+                    acousticSimResults(idx).angle);
+                titleStr_target = sprintf('Q %0.5e W/M^3 at \n Target Voxel (%dr,%dc,%dp) \nPsi %d°', ...
+                    acousticSimResults(idx).targetQ, ...
+                    acousticSimResults(idx).targetRCP(1), ...
+                    acousticSimResults(idx).targetRCP(2), ...
+                    acousticSimResults(idx).targetRCP(3), ...
+                    acousticSimResults(idx).angle);
+                % coords of target (either left or right) at this level
+                target_XY = [acousticSimResults(idx).targetRCP(3), acousticSimResults(idx).targetRCP(1)];
+                % coords of max voxel at this level
+                maxQ_XY = [acousticSimResults(idx).maxQ_RCP(3), acousticSimResults(idx).maxQ_RCP(1)];
+                % coords of off-target points of interest at this level
+                POI_XY = ones(length(otherPOI_ids), 2);
+                for POI_num = 1:length(otherPOI_ids)
+                    POI_XY(POI_num + 1, :) = [levelPOI(level).(otherPOI_ids{POI_num})(3), ...
+                        levelPOI(level).(otherPOI_ids{POI_num})(1)];
+                end
+                
+                QFigHandle = plotPQSlice_neck( ...
+                    squeeze(Modl(:, acousticSimResults(idx).maxQ_RCP(2), :)), ...   % model slice at max
+                    squeeze(Q(:, acousticSimResults(idx).maxQ_RCP(2), :)), ...      % Q slice at max
+                    titleStr_max, ...
+                    squeeze(Modl(:, acousticSimResults(idx).targetRCP(2), :)), ...  % model slice at target
+                    squeeze(Q(:, acousticSimResults(idx).targetRCP(2), :)), ...     % Q at target
+                    titleStr_target, ...
+                    [lowerDisplayLimit_Q acousticSimResults(idx).maxQ], ...         
+                    maxQ_XY, ...
+                    target_XY, ...
+                    POI_XY);
+                QFigHandle.Name = ['Model  ', acousticSimResults(idx).modelID, ...
+                    ', Target  ', acousticSimResults(idx).targetID, ...
+                    ' Transducer  ', acousticSimResults(idx).ERFAID];
+                
+                % plot pressure slice at max and target ----------
+                titleStr_max = sprintf('Pressure %0.5e Pa at \n Max Voxel (%dr,%dc,%dp) \nPsi %d°', ...
+                    acousticSimResults(idx).maxP, ...
+                    acousticSimResults(idx).maxP_RCP(1), ...
+                    acousticSimResults(idx).maxP_RCP(2), ...
+                    acousticSimResults(idx).maxP_RCP(3), ...
+                    acousticSimResults(idx).angle);
+                titleStr_target = sprintf('Pressure %0.5e Pa at \n Target Voxel (%dr,%dc,%dp) \nPsi %d°', ...
+                    acousticSimResults(idx).targetP, ...
+                    acousticSimResults(idx).targetRCP(1), ...
+                    acousticSimResults(idx).targetRCP(2), ...
+                    acousticSimResults(idx).targetRCP(3), ...
+                    acousticSimResults(idx).angle);
+                 % coords of max voxel at this level
+                maxP_XY = [acousticSimResults(idx).maxP_RCP(3), acousticSimResults(idx).maxP_RCP(1)];
+                PFigHandle = plotPQSlice_neck( ...
+                    squeeze(Modl(:, acousticSimResults(idx).maxP_RCP(2),:)), ...    % model slice at max
+                    squeeze(abs(P(:,acousticSimResults(idx).maxP_RCP(2),:))),...    % P slice at max
+                    titleStr_max, ...
+                    squeeze(Modl(:, acousticSimResults(idx).targetRCP(2),:)), ...   % model slice at target
+                    squeeze(abs(P(:,acousticSimResults(idx).targetRCP(2),:))),...   % P slice at target
+                    titleStr_target, ...
+                    [lowerDisplayLimit_P acousticSimResults(idx).maxP], ...
+                    maxP_XY, ...
+                    target_XY, ...
+                    POI_XY);
+                PFigHandle.Name = ['Model ', acousticSimResults(idx).modelID, ...
+                    ', Target ', acousticSimResults(idx).targetID, ...
+                    ' Transducer  ', acousticSimResults(idx).ERFAID];
+    
+                fprintf("Complete\n\n");
+                idx = idx + 1;
             end
-            lowerDisplayLimit_P = 1e+06;
-            if acousticSimResults(idx).maxP <= lowerDisplayLimit_P
-                lowerDisplayLimit_P = acousticSimResults(idx).maxP / 2;
-            end
-            
-            % plot power deposition (Q) ----------
-            % display Q slice at max and at target 
-
-            titleStr_max = sprintf('Q %0.5e W/M^3 at \n Max Voxel (%dr,%dc,%dp) \nPsi %d°', ...
-                acousticSimResults(idx).maxQ, ...
-                acousticSimResults(idx).maxQ_RCP(1), ...
-                acousticSimResults(idx).maxQ_RCP(2), ...
-                acousticSimResults(idx).maxQ_RCP(3), ...
-                acousticSimResults(idx).angle);
-            titleStr_target = sprintf('Q %0.5e W/M^3 at \n Target Voxel (%dr,%dc,%dp) \nPsi %d°', ...
-                acousticSimResults(idx).targetQ, ...
-                acousticSimResults(idx).targetRCP(1), ...
-                acousticSimResults(idx).targetRCP(2), ...
-                acousticSimResults(idx).targetRCP(3), ...
-                acousticSimResults(idx).angle);
-            
-            QFigHandle = plotPQSlice_neck( ...
-                squeeze(Modl(:, acousticSimResults(idx).maxQ_RCP(2), :)), ...   % model slice
-                squeeze(Q(:, acousticSimResults(idx).maxQ_RCP(2), :)), ...      % Q slice at max
-                titleStr_max, ...
-                squeeze(Q(:, acousticSimResults(idx).targetRCP(2), :)), ...     % Q at target
-                titleStr_target, ...
-                [lowerDisplayLimit_Q acousticSimResults(idx).maxQ], ...         
-                [acousticSimResults(idx).targetRCP(3), acousticSimResults(idx).targetRCP(1)]);
-            QFigHandle.Name = [acousticSimResults(idx).modelID, ' ', acousticSimResults(idx).targetID];
-            
-            % plot pressure (P) ----------
-            titleStr_max = sprintf('Pressure %0.5e Pa at \n Max Voxel (%dr,%dc,%dp) \nPsi %d°', ...
-                acousticSimResults(idx).maxP, ...
-                acousticSimResults(idx).maxP_RCP(1), ...
-                acousticSimResults(idx).maxP_RCP(2), ...
-                acousticSimResults(idx).maxP_RCP(3), ...
-                acousticSimResults(idx).angle);
-            titleStr_target = sprintf('Pressure %0.5e Pa at \n Target Voxel (%dr,%dc,%dp) \nPsi %d°', ...
-                acousticSimResults(idx).targetP, ...
-                acousticSimResults(idx).targetRCP(1), ...
-                acousticSimResults(idx).targetRCP(2), ...
-                acousticSimResults(idx).targetRCP(3), ...
-                acousticSimResults(idx).angle);
-             
-            % display slice at max
-            PFigHandle = plotPQSlice_neck( ...
-                squeeze(Modl(:, acousticSimResults(idx).maxP_RCP(2),:)), ...
-                squeeze(abs(P(:,acousticSimResults(idx).maxP_RCP(2),:))),...
-                titleStr_max, ...
-                squeeze(abs(P(:,acousticSimResults(idx).targetRCP(2),:))),...
-                titleStr_target, ...
-                [lowerDisplayLimit_P acousticSimResults(idx).maxP], ...
-                [acousticSimResults(idx).maxP_RCP(3), acousticSimResults(idx).maxP_RCP(1)]);
-            PFigHandle.Name = ['Model ', acousticSimResults(idx).modelID, ', Target ', acousticSimResults(idx).targetID];
-
-            fprintf("Complete\n\n");
-            idx = idx + 1;
         end
     end
 end
@@ -278,7 +279,7 @@ end
 
 %% THERMAL simulations
 
-% assumes acousticSimResults is still in memory
+% **assumes acousticSimResults struct is still in memory**
 disp("Running thermal simulations...");
 fprintf("\n");
 
@@ -386,18 +387,32 @@ for simNum = 1:length(acousticSimResults)
         thermalSimResults(simNum).TDose_fileName = TDFile;
     end
 
-    % display temperature slice at target (overlaid on model)
-    figHandle = plotTSlice(squeeze(Modl(:,thermalSimResults(simNum).targetRCP(2),:)), ...
-        squeeze(T(:,thermalSimResults(simNum).targetRCP(2),:, end)), ...
-        ['T = ', num2str(thermalSimResults(simNum).targetT), ...
-            ' °C at Time ', num2str(thermalSimResults(simNum).timePoints(end)), ...
-            ' at Target Voxel (', num2str(thermalSimResults(simNum).targetRCP(1)), ...
-            'r,', num2str(thermalSimResults(simNum).targetRCP(2)), ...
-            'c,', num2str(thermalSimResults(simNum).targetRCP(3)), ...
-            'p), Psi ', num2str(thermalSimResults(simNum).angle), '°' ], ...
-        [2 40], ...
-        [thermalSimResults(simNum).targetRCP(3) thermalSimResults(simNum).targetRCP(1)]);
-    set(figHandle, 'Name', [modelID, ', Target ',  thermalSimResults(simNum).targetID])
+    titleStr_target = sprintf('T %.2f°C at Time %.1f S \n Target Voxel (%dr,%dc,%dp) \n and Psi %d°', ...
+        thermalSimResults(simNum).targetT, ...
+        thermalSimResults(simNum).tEnd, ...
+        thermalSimResults(simNum).targetRCP(1), ...
+        thermalSimResults(simNum).targetRCP(2), ...
+        thermalSimResults(simNum).targetRCP(3), ...
+        thermalSimResults(simNum).angle);
+
+        % coords of target (either left or right) at this level
+            target_XY = [thermalSimResults(simNum).targetRCP(3), thermalSimResults(simNum).targetRCP(1)];
+            % coords of off-target points of interest at this level
+            POI_XY = ones(length(otherPOI_ids), 2);
+            for POI_num = 1:length(otherPOI_ids)
+                POI_XY(POI_num + 1, :) = [levelPOI(level).(otherPOI_ids{POI_num})(3), ...
+                    levelPOI(level).(otherPOI_ids{POI_num})(1)];
+            end
+            figHandle = plotTSlice_neck( ...
+                squeeze(Modl(:, thermalSimResults(simNum).targetRCP(2), :)), ...    % model slice at target
+                squeeze(T(:, thermalSimResults(simNum).targetRCP(2), :, end)), ...  % T slice at target
+                titleStr_target, ...
+                [2 40], ...                                                         % display limits (°C)         
+                target_XY,...
+                POI_XY);
+            figHandle.Name = ['Model  ', thermalSimResults(simNum).modelID, ...
+                ', Target  ', thermalSimResults(simNum).targetID, ...
+                ' Transducer  ', thermalSimResults(simNum).ERFAID];
 
     fprintf("Complete\n\n");
 end
