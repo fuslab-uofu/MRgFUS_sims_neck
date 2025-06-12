@@ -6,7 +6,7 @@
 %               for MRgFUS neck pain study. This script is designed to run simulations 
 %               on a neck model, breast and bone transducers, and multiple targets and angles. 
 %               Uses the hybrid angular spectrum method (HAS) for acoustic simulation and
-%               _________ for thermal simulation. 
+%               Pennes bioheat equation for thermal simulation. 
 %
 % Authors:      Michelle Kline & Marta M. Iversen  
 %               Department of Radiology and Imaging Sciences  
@@ -22,44 +22,67 @@
 %               2. power deposition ('Q') - 3D single
 %               3. temperatures ('T') - 4D single
 %               
-% Output:       Vector of results for each simulation:
-%               'modelID'   - name of the segmented neck model
-%               'ERFAID'    - name of the simulated transducer (ERFA)
-%               'targetID'  - name of the target
-%               'targetRCP' - target indices in MATLAB row, col, page
-%               'angle'     - rotation of simulated transducer
-%               'maxP'      - maximum pressure
-%               'maxP_RCP'  - max pressure voxel indices
-%               'targetP'   - pressure at target voxel
-%               'distP'     - Euclidean distance, target voxel to max pressure voxel
-%               'P_fileName'- full path to the saved pressure file
-%               'maxQ'      - maximum Q 
-%               'maxQ_RCP'  - max Q voxel indices
-%               'targetQ'   - Q at target voxel
-%               'distQ'     - Euclidean distance, target voxel to max Q voxel
-%               'Q_fileName'- full path to the saved Q file
-%               'metadata'  - HAS-related metadata
+% Outputs:       1. vector of results for each simulation:
+%                   'modelID'   - id of the segmented neck model
+%                   'ERFAID'    - id of the simulated transducer (ERFA)
+%                   'targetID'  - name of the target
+%                   'targetRCP' - target indices in MATLAB row, col, page
+%                   'angle'     - rotation of simulated transducer
+%                   'maxP'      - maximum pressure
+%                   'maxP_RCP'  - max pressure voxel indices
+%                   'targetP'   - pressure at target voxel
+%                   'distP'     - Euclidean distance, target voxel to max pressure voxel
+%                   'P_fileName'- full path to the saved pressure file
+%                   'maxQ'      - maximum Q 
+%                   'maxQ_RCP'  - max Q voxel indices
+%                   'targetQ'   - Q at target voxel
+%                   'distQ'     - Euclidean distance, target voxel to max Q voxel
+%                   'Q_fileName'- full path to the saved Q file
+%                   'metadata'  - HAS-related metadata
+%               2. plot of pressure at max voxel slice and at target voxel slice
+%               3. plot of temperature at target voxel slice
+%
 %
 % Requirements: MATLAB R2020a or later (toolboxes?)  
 %
 % Dependencies: 1. runAcousticSim_neck.m 
 %               2. plotPQSlice_neck.m
-%               2. runThermalSim_neck.m  
+%               3. runThermalSim_neck.m 
+%               4. plotTSlice_neck.m
+%               5. ERFA_A10.mat
+%               6. ERFA_S11.mat
 %
 % =============================================================================
 
 
 %% SETUP: MODIFY AS NEEDED
 
-studyDir = 'D:\HUMAN\IRB137036_Rieke_Shah\neck_system_paper';
+studyDir = 'D:\HUMAN\IRB137036_Rieke_Shah\neck_system_paper\forPublication';
 
 % segmented neck model
 % NOTE: HAS expects the model to be a 3D matrix of integers specifically named 'Modl' (not a type-o)
 % Each integer corresponds to one medium, values must be contiguous and range from 1 to number of media.
-modelDir = fullfile(studyDir, '384957\MichelleCodeTests');
-modelID = 'Model_384957'; 
-load(fullfile(modelDir, modelID), 'Modl');
+% modelID = '000033';
+% modelDir = fullfile(studyDir, '000033');
+% modelResolution_rcp = [0.3452 0.3452 1]; % mm: row, col, page
+% modelID = '000129';
+% modelDir = fullfile(studyDir, '000129');
+% modelResolution_rcp = [0.4883 2.999 0.4883];	% mm: % row, col, page
+% modelID = '384957';
+% modelDir = fullfile(studyDir, '384957');
+% modelResolution_rcp = [0.5 0.5 0.5]; % row, col, page
+modelID = '432420';
+modelDir = fullfile(studyDir, '432420');
 modelResolution_rcp = [0.5 0.5 0.5]; % row, col, page
+% modelID = '678277';
+% modelDir = fullfile(studyDir, '678277');
+% modelResolution_rcp = [0.5 0.5 0.5]; % row, col, page
+% modelID = '818740';
+% modelDir = fullfile(studyDir, '818740');
+% modelResolution_rcp = [0.5 0.5 0.5]; % row, col, page
+
+modelFileName = ['model_', modelID, '.mat'];
+load(fullfile(modelDir, modelFileName), 'Modl');
 
 % coordinates of points of interest (target and offtarget locations) for
 % all five levels (row, col, page indices in segmented model)
@@ -139,8 +162,9 @@ for level = 1:length(levelPOI)
             end
             for transducer = [breast_transducer, bone_transducer]
                 acousticSimResults(idx).modelID = modelID;
-                acousticSimResults(idx).modelFile = fullfile(modelDir, modelID);
+                acousticSimResults(idx).modelFile = fullfile(modelDir, modelFileName);
                 acousticSimResults(idx).ERFAID = transducer.id;
+                acousticSimResults(idx).ERFAFile = transducer.ERFA;
                 acousticSimResults(idx).targetID = target_id;
                 acousticSimResults(idx).targetRCP = target_RCP;
                 acousticSimResults(idx).angle = angle;
@@ -285,7 +309,7 @@ fprintf("\n");
 
 templateStruct = struct( ...
     'modelID',          modelID, ...
-    'modelFile',        fullfile(modelDir, modelID), ...
+    'modelFile',        fullfile(modelDir, modelFileName), ...
     'ERFAID',           [], ...
     'ERFAFile',         [], ...
     'targetID',         [], ...
@@ -320,6 +344,10 @@ for simNum = 1:length(acousticSimResults)
     thermalSimResults(simNum).angle = acousticSimResults(simNum).angle;
 
     % load the Q file we are using for this simulation
+    if ~exist(acousticSimResults(simNum).Q_fileName, 'file')
+        fprintf('Q file not found: %s\n', acousticSimResults(simNum).Q_fileName);
+        return  % exits the script
+    end
     load(acousticSimResults(simNum).Q_fileName, 'Q');
     thermalSimResults(simNum).Q_fileName = acousticSimResults(simNum).Q_fileName;
     disp(acousticSimResults(simNum).Q_fileName)
@@ -328,7 +356,7 @@ for simNum = 1:length(acousticSimResults)
     QScaleFactor = 1;
     thermalSimResults(simNum).power = QScaleFactor * 100;   % FIXME - is 100 a constant?
 
-    % FIXME - description?
+    % temperature required for thermal ablation 
     thermalSimResults(simNum).reqTemp = 30;
     thermalSimResults(simNum).tEnd = 20;
 
@@ -376,14 +404,14 @@ for simNum = 1:length(acousticSimResults)
     % these files can be quite large!
     tempsFile = fullfile(thermalSaveDir, ...
        ['T_', modelID,'_W',num2str(100*QScaleFactor), '_max', num2str(thermalSimResults(simNum).maxT, 4),'.mat']);
-%     save(tempsFile, 'T', '-v7.3');   
+    save(tempsFile, 'T', '-v7.3');   
     thermalSimResults(simNum).T_fileName = tempsFile;
 
     if (calcThermalDose && ~isempty(TDose))
         disp("Saving thermal dose...")
         TDFile = fullfile(thermalSaveDir, ...
            ['TDose_', modelID,'_W',num2str(100*QScaleFactor), '_max', num2str(thermalSimResults(simNum).maxT, 4),'.mat']);
-%         save(TDFile, 'TDose', '-v7.3');   
+        save(TDFile, 'TDose', '-v7.3');   
         thermalSimResults(simNum).TDose_fileName = TDFile;
     end
 
