@@ -11,18 +11,13 @@ MATLAB Version: 9.13.0.2126072 (R2022b) Update 3
 Operating System: Microsoft Windows 11 Pro Version 10.0 (Build 26100)
 
 
-## Installation
-
-
 ## Usage 
-runNeckSims.m is the entry point  
-modify  the SETUP section of runNeckSims with the data directories, information about the segmented model,  
+The entry point is runNeckSims. This script is the driver for running acoustic and thermal simulations.  
+Start by modifying the SETUP section with data directories, information about the segmented model, 
 desired transducer positions, ERFA file information, etc.  
 
 
 
 ## Credits
  - Michelle Kline, Department of Radiology and Imaging Sciences, University of Utah
- - Marta Iverson
- - 
- -
+ - Marta Iverson, Department of Physical Medicine and Rehabilitation, University of Utah

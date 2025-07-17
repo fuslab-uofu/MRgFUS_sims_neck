@@ -4,7 +4,7 @@
 %
 % Description:  Driver script for running acoustic and thermal simulations on models 
 %               for MRgFUS neck pain study. This script is designed to run simulations 
-%               on a neck model, breast and bone transducers, and multiple targets and angles. 
+%               on a neck model, two transducers, and multiple targets and angles. 
 %               Uses the hybrid angular spectrum method (HAS) for acoustic simulation and
 %               Pennes bioheat equation for thermal simulation. 
 %
@@ -15,7 +15,7 @@
 % Inputs:       This script must be updated where indicated with file names, 
 %               folder paths, and parameters.
 %               1. segmented neck model
-%               2. simulated pressure source ('ERFA') files for breast and bone transducers
+%               2. simulated pressure source ('ERFA') files for A10 and S11 transducers
 %               3. desired targets for simulated sonications
 %
 % Saves files:  1. pressure ('P') - 3D complex single 
@@ -24,7 +24,7 @@
 %               
 % Outputs:       1. vector of results for each simulation:
 %                   'modelID'   - id of the segmented neck model
-%                   'ERFAID'    - id of the simulated transducer (ERFA)
+%                   'ERFAID'    - id of the simulated transducer (ERFA). For this paper, A10 and S11
 %                   'targetID'  - name of the target
 %                   'targetRCP' - target indices in MATLAB row, col, page
 %                   'angle'     - rotation of simulated transducer
@@ -63,30 +63,42 @@ studyDir = 'D:\HUMAN\IRB137036_Rieke_Shah\neck_system_paper\forPublication';
 % segmented neck model
 % NOTE: HAS expects the model to be a 3D matrix of integers specifically named 'Modl' (not a type-o)
 % Each integer corresponds to one medium, values must be contiguous and range from 1 to number of media.
-% modelID = '000033';
-% modelDir = fullfile(studyDir, '000033');
-% modelResolution_rcp = [0.3452 0.3452 1]; % mm: row, col, page
-% modelID = '000129';
-% modelDir = fullfile(studyDir, '000129');
-% modelResolution_rcp = [0.4883 2.999 0.4883];	% mm: % row, col, page
-% modelID = '384957';
-% modelDir = fullfile(studyDir, '384957');
-% modelResolution_rcp = [0.5 0.5 0.5]; % row, col, page
 modelID = '432420';
 modelDir = fullfile(studyDir, '432420');
 modelResolution_rcp = [0.5 0.5 0.5]; % row, col, page
-% modelID = '678277';
-% modelDir = fullfile(studyDir, '678277');
-% modelResolution_rcp = [0.5 0.5 0.5]; % row, col, page
-% modelID = '818740';
-% modelDir = fullfile(studyDir, '818740');
-% modelResolution_rcp = [0.5 0.5 0.5]; % row, col, page
-
 modelFileName = ['model_', modelID, '.mat'];
 load(fullfile(modelDir, modelFileName), 'Modl');
 
 % coordinates of points of interest (target and offtarget locations) for
 % all five levels (row, col, page indices in segmented model)
+% Example:
+% Each model folder has a .mat file containing the struct variable "levelPOI".
+% levelPOI is a 1×5 struct array with coordinates for the eight points of interest
+%   each at five spinal levels discussed in the paper.
+% The coordinates are in MATLAB indices (row, col, page).
+%     target_left
+%     target_right
+%     csf
+%     nerve_left
+%     nerve_right
+%     artery_left
+%     artery_right
+%     sc
+% 
+% levelPOI.target_left
+% ans =
+%    294   212   216
+% ans =
+%    304   176   217
+% ans =
+%    304   146   221
+% ans =
+%    195   114   228
+% ans =
+%    303    87   224
+%
+% Feel free to use any variable you like to store coordinates.
+
 load(fullfile(modelDir, 'trgt_offtrgt_coords.mat'), 'levelPOI');
 target_ids = {'target_left', 'target_right'};
 otherPOI_ids = {'csf', 'nerve_left', 'nerve_right', 'artery_left', 'artery_right', 'sc'};
@@ -102,12 +114,12 @@ angles = [0 15 30];
 
 % simulated pressure input (ERFA file)
 ERFA_directory = fullfile(studyDir, 'ERFA');
-breast_transducer.fileRoot = 'ERFA_A10.mat';
-breast_transducer.ERFA = load(fullfile(ERFA_directory, breast_transducer.fileRoot));
-breast_transducer.id = 'breast';
-bone_transducer.fileRoot = 'ERFA_S11.mat';
-bone_transducer.ERFA = load(fullfile(ERFA_directory, bone_transducer.fileRoot));
-bone_transducer.id = 'bone';
+A10_transducer.fileRoot = 'ERFA_A10.mat';
+A10_transducer.ERFA = load(fullfile(ERFA_directory, A10_transducer.fileRoot));
+A10_transducer.id = 'A10';
+S11_transducer.fileRoot = 'ERFA_S11.mat';
+S11_transducer.ERFA = load(fullfile(ERFA_directory, S11_transducer.fileRoot));
+S11_transducer.id = 'S11';
 
 % output directories
 acousticSaveDir = fullfile(modelDir, 'pressures');
@@ -158,10 +170,10 @@ for level = 1:length(levelPOI)
         target_RCP = levelPOI(level).(target_id);
         for angleNum = 1:length(angles)
             angle = angles(angleNum);
-            if strcmp(target_id, 'target_left')
+            if strcmp(target_id, 'target_left')  % MODIFY AS NEEDED FOR YOUR TARGETS
                 angle = -1 * angle;
             end
-            for transducer = [breast_transducer, bone_transducer]
+            for transducer = [A10_transducer, S11_transducer]
                 acousticSimResults(idx).modelID = modelID;
                 acousticSimResults(idx).modelFile = fullfile(modelDir, modelFileName);
                 acousticSimResults(idx).ERFAID = transducer.id;
@@ -203,9 +215,11 @@ for level = 1:length(levelPOI)
                 % save pressure, Q, and metadata
                 disp("Saving pressure and Q...")
                 meta = acousticSimResults(idx).metadata;
-                saveString = [modelID, '_', target_id, '_psi_' num2str(angle), ...
-                    '_str_' 'x' num2str(steering(1)) 'y' num2str(steering(2)) 'z' num2str(steering(3)) 'mm' , ...
-                    '_', transducer.id];
+                saveString = [modelID, ...
+                    '_lev', num2str(level),...
+                    '_tgt', target_id, ...
+                    '_psi' num2str(angle), ...
+                    '_xdcr', transducer.id];
                 qFileName = ['Q_',saveString,'.mat'];
                 save(fullfile(acousticSaveDir, qFileName), 'Q', 'meta');
                 acousticSimResults(idx).Q_fileName = fullfile(acousticSaveDir, qFileName);
@@ -260,9 +274,12 @@ for level = 1:length(levelPOI)
                     maxQ_XY, ...
                     target_XY, ...
                     POI_XY);
-                QFigHandle.Name = ['Model  ', acousticSimResults(idx).modelID, ...
-                    ', Target  ', acousticSimResults(idx).targetID, ...
-                    ' Transducer  ', acousticSimResults(idx).ERFAID];
+                QFigHandle.Name = ['  Q', ...
+                    ', Model: ', acousticSimResults(idx).modelID, ...
+                    ', Level: ', num2str(level), ...
+                    ', Target ID: ', acousticSimResults(idx).targetID, ...
+                    ', Angle: ', num2str(angle), ...
+                    ', Transducer:  ', acousticSimResults(idx).ERFAID];
                 
                 % plot pressure slice at max and target ----------
                 titleStr_max = sprintf('Pressure %0.5e Pa at \n Max Voxel (%dr,%dc,%dp) \nPsi %d°', ...
@@ -290,9 +307,12 @@ for level = 1:length(levelPOI)
                     maxP_XY, ...
                     target_XY, ...
                     POI_XY);
-                PFigHandle.Name = ['Model ', acousticSimResults(idx).modelID, ...
-                    ', Target ', acousticSimResults(idx).targetID, ...
-                    ' Transducer  ', acousticSimResults(idx).ERFAID];
+                PFigHandle.Name = ['  Pressure', ...
+                    ', Model: ', acousticSimResults(idx).modelID, ...
+                    ', Level: ', num2str(level), ...
+                    ', Target ID: ', acousticSimResults(idx).targetID, ...
+                    ', Angle: ', num2str(angle), ...
+                    ', Transducer:  ', acousticSimResults(idx).ERFAID];
     
                 fprintf("Complete\n\n");
                 idx = idx + 1;
@@ -403,15 +423,18 @@ for simNum = 1:length(acousticSimResults)
 
     disp("Saving temperatures...")
     % these files can be quite large!
-    tempsFile = fullfile(thermalSaveDir, ...
-       ['T_', modelID,'_W',num2str(100*QScaleFactor), '_max', num2str(thermalSimResults(simNum).maxT, 4),'.mat']);
+    tSaveString = [num2str(simNum), ...
+        '_', modelID, ...
+        '_scl', num2str(100*QScaleFactor), ...
+        '_max', num2str(thermalSimResults(simNum).maxT), ...
+        '.mat'];
+    tempsFile = fullfile(thermalSaveDir, ['T_', tSaveString]);
     save(tempsFile, 'T', '-v7.3');   
     thermalSimResults(simNum).T_fileName = tempsFile;
 
     if (calcThermalDose && ~isempty(TDose))
         disp("Saving thermal dose...")
-        TDFile = fullfile(thermalSaveDir, ...
-           ['TDose_', modelID,'_W',num2str(100*QScaleFactor), '_max', num2str(thermalSimResults(simNum).maxT, 4),'.mat']);
+        TDFile = fullfile(thermalSaveDir, ['TDose_', tSaveString]);
         save(TDFile, 'TDose', '-v7.3');   
         thermalSimResults(simNum).TDose_fileName = TDFile;
     end
@@ -439,9 +462,12 @@ for simNum = 1:length(acousticSimResults)
                 [2 40], ...                                                         % display limits (°C)         
                 target_XY,...
                 POI_XY);
-            figHandle.Name = ['Model  ', thermalSimResults(simNum).modelID, ...
-                ', Target  ', thermalSimResults(simNum).targetID, ...
-                ' Transducer  ', thermalSimResults(simNum).ERFAID];
+            figHandle.Name = ['  Temperature', ...
+                    ', Model: ', thermalSimResults(simNum).modelID, ...
+                    ', Level: ', num2str(level), ...
+                    ', Target ID: ', thermalSimResults(simNum).targetID, ...
+                    ', Angle: ', num2str(angle), ...
+                    ', Transducer: ', thermalSimResults(simNum).ERFAID];
 
     fprintf("Complete\n\n");
 end
