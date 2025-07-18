@@ -32,4 +32,4 @@ Operating System: MacOS Sequioa Version 15.5
 
 ## Credits
  - Michelle Kline, Department of Radiology and Imaging Sciences, University of Utah
- - Marta Iverson, Department of Physical Medicine and Rehabilitation, University of Utah
+ - Marta Iversen, Department of Physical Medicine and Rehabilitation, University of Utah
